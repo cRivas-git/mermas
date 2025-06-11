@@ -15,6 +15,10 @@ from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import datetime as dt
+from mlxtend.frequent_patterns import apriori
+from mlxtend.frequent_patterns import association_rules
+import warnings
+warnings.filterwarnings('ignore')
 
 print("*IMPLEMENTACIÓN DE MODELOS PREDICTIVOS PARA MERMAS*")
 
@@ -452,4 +456,179 @@ with open('reporte_general.md', 'w', encoding='utf-8') as f:
 print("Archivo generado: reporte_general.md")
 
 print("\nEl análisis predictivo del porcentaje de mermas ha sido completado exitosamente.")
-print("Consulte reporte_general.md para ver el análisis completo.") 
+print("Consulte reporte_general.md para ver el análisis completo.")
+
+# PASO 16: ANÁLISIS DE REGLAS DE ASOCIACIÓN
+print("\n=== ANÁLISIS DE REGLAS DE ASOCIACIÓN ===")
+
+def prepare_data_for_association(df):
+    """Prepara los datos para el análisis de reglas de asociación."""
+    # Definir umbrales para categorizar las mermas
+    merma_threshold = df['merma_monto'].quantile(0.75)
+    
+    # Crear nuevas características binarias
+    binary_data = pd.DataFrame()
+    
+    # Merma alta por categoría
+    pivot_categoria = pd.crosstab(df.index, df['categoria'])
+    binary_data = pd.concat([binary_data, pivot_categoria.add_prefix('categoria_')], axis=1)
+    
+    # Merma alta por ubicación
+    pivot_ubicacion = pd.crosstab(df.index, df['ubicación_motivo'])
+    binary_data = pd.concat([binary_data, pivot_ubicacion.add_prefix('ubicacion_')], axis=1)
+    
+    # Merma alta por tienda
+    pivot_tienda = pd.crosstab(df.index, df['tienda'])
+    binary_data = pd.concat([binary_data, pivot_tienda.add_prefix('tienda_')], axis=1)
+    
+    # Indicador de merma alta
+    binary_data['merma_alta'] = (df['merma_monto'] > merma_threshold).astype(int)
+    
+    return binary_data
+
+def analyze_association_rules(binary_data, min_support=0.01, min_confidence=0.5):
+    """Genera y analiza reglas de asociación."""
+    # Generar conjuntos frecuentes
+    frequent_itemsets = apriori(binary_data, min_support=min_support, use_colnames=True)
+    
+    # Generar reglas de asociación
+    rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=min_confidence)
+    
+    # Ordenar reglas por lift
+    rules = rules.sort_values('lift', ascending=False)
+    
+    return rules
+
+def visualize_metrics(rules):
+    """Visualiza las métricas de las reglas de asociación."""
+    plt.figure(figsize=(15, 6))
+    
+    # Gráfico de dispersión: Support vs Lift
+    plt.subplot(1, 2, 1)
+    plt.scatter(rules['support'], rules['lift'], alpha=0.5)
+    plt.xlabel('Soporte (frecuencia del patrón)')
+    plt.ylabel('Lift (fuerza de la relación)')
+    plt.title('Soporte vs Lift')
+    
+    # Añadir anotaciones para puntos interesantes
+    for i in range(min(3, len(rules))):
+        plt.annotate(f'Regla {i+1}', 
+                    (rules.iloc[i]['support'], rules.iloc[i]['lift']),
+                    xytext=(10, 10), textcoords='offset points')
+    
+    # Histograma de Lift
+    plt.subplot(1, 2, 2)
+    plt.hist(rules['lift'], bins=20, edgecolor='black')
+    plt.xlabel('Lift')
+    plt.ylabel('Frecuencia')
+    plt.title('Distribución de Lift')
+    
+    plt.tight_layout()
+    plt.savefig('metricas_asociacion.png', dpi=300, bbox_inches='tight')
+    print("Gráfico guardado: metricas_asociacion.png")
+
+def interpret_rules(rules, binary_data):
+    """Interpreta las reglas encontradas."""
+    interpretations = []
+    
+    for idx, rule in rules.iterrows():
+        antecedents = list(rule['antecedents'])
+        consequents = list(rule['consequents'])
+        
+        # Formar interpretación
+        interpretation = {
+            'regla': f"{' Y '.join(antecedents)} => {' Y '.join(consequents)}",
+            'soporte': rule['support'],
+            'confianza': rule['confidence'],
+            'lift': rule['lift']
+        }
+        
+        interpretations.append(interpretation)
+    
+    return interpretations
+
+# Preparar datos para el análisis de asociación
+print("\nPreparando datos para análisis de asociación...")
+binary_data = prepare_data_for_association(data)
+
+# Eliminar la columna 'merma_alta' para evitar reglas triviales
+if 'merma_alta' in binary_data.columns:
+    binary_data = binary_data.drop(columns=['merma_alta'])
+
+# Generar y analizar reglas
+print("Generando reglas de asociación...")
+# Ajustamos los parámetros para obtener más patrones
+rules = analyze_association_rules(binary_data, min_support=0.05, min_confidence=0.4)
+
+# Interpretar reglas
+print("Interpretando reglas...")
+interpretations = interpret_rules(rules, binary_data)
+
+def generate_association_rules_report(rules, interpretations):
+    """Genera un reporte técnico de las reglas de asociación encontradas."""
+    md_content = """# Análisis de Reglas de Asociación para Mermas
+
+## Interpretación de Métricas
+
+### Soporte (Support)
+- Frecuencia con la que aparece un patrón en el dataset
+- Un soporte de 0.05 significa que el patrón aparece en el 5% de los casos
+- Indica qué tan común es el patrón en los datos
+
+### Confianza (Confidence)
+- Probabilidad de que ocurra el consecuente cuando ocurre el antecedente
+- Una confianza de 0.8 significa que el 80% de las veces que ocurre A, también ocurre B
+
+### Lift
+- Mide la fuerza de la relación entre los elementos de la regla
+- Lift > 1: Correlación positiva (los elementos tienden a aparecer juntos)
+- Lift = 1: Independencia (no hay relación especial)
+- Lift < 1: Correlación negativa (los elementos tienden a no aparecer juntos)
+
+## Reglas Encontradas
+"""
+    
+    # Añadir todas las reglas encontradas con sus métricas
+    for i, interpretation in enumerate(interpretations, 1):
+        md_content += f"""
+### Patrón {i}
+- **Regla**: {interpretation['regla']}
+- **Soporte**: {interpretation['soporte']*100:.2f}%
+- **Confianza**: {interpretation['confianza']*100:.2f}%
+- **Lift**: {interpretation['lift']:.2f}
+"""
+
+    md_content += """
+## Análisis de Distribución de Métricas
+
+### Distribución de Lift
+- Mínimo: {:.2f}
+- Máximo: {:.2f}
+- Promedio: {:.2f}
+
+### Distribución de Soporte
+- Mínimo: {:.2f}%
+- Máximo: {:.2f}%
+- Promedio: {:.2f}%
+
+### Distribución de Confianza
+- Mínimo: {:.2f}%
+- Máximo: {:.2f}%
+- Promedio: {:.2f}%
+""".format(
+        rules['lift'].min(), rules['lift'].max(), rules['lift'].mean(),
+        rules['support'].min()*100, rules['support'].max()*100, rules['support'].mean()*100,
+        rules['confidence'].min()*100, rules['confidence'].max()*100, rules['confidence'].mean()*100
+    )
+    
+    return md_content
+
+# Generar y guardar reporte de reglas de asociación
+print("\nGenerando reporte de reglas de asociación...")
+association_report = generate_association_rules_report(rules, interpretations)
+with open('reporte_reglas_asociacion.md', 'w', encoding='utf-8') as f:
+    f.write(association_report)
+print("Archivo generado: reporte_reglas_asociacion.md")
+
+print("\nEl análisis de reglas de asociación ha sido completado.")
+print("Consulte reporte_reglas_asociacion.md para ver el análisis detallado de los patrones encontrados.")
