@@ -464,7 +464,7 @@ print("\n=== ANÁLISIS DE REGLAS DE ASOCIACIÓN ===")
 def prepare_data_for_association(df):
     """Prepara los datos para el análisis de reglas de asociación."""
     # Definir umbrales para categorizar las mermas
-    merma_threshold = df['merma_monto'].quantile(0.75)
+    merma_threshold = df['merma_monto_p'].quantile(0.75)
     
     # Crear nuevas características binarias
     binary_data = pd.DataFrame()
@@ -480,9 +480,6 @@ def prepare_data_for_association(df):
     # Merma alta por tienda
     pivot_tienda = pd.crosstab(df.index, df['tienda'])
     binary_data = pd.concat([binary_data, pivot_tienda.add_prefix('tienda_')], axis=1)
-    
-    # Indicador de merma alta
-    binary_data['merma_alta'] = (df['merma_monto'] > merma_threshold).astype(int)
     
     return binary_data
 
@@ -550,10 +547,6 @@ def interpret_rules(rules, binary_data):
 # Preparar datos para el análisis de asociación
 print("\nPreparando datos para análisis de asociación...")
 binary_data = prepare_data_for_association(data)
-
-# Eliminar la columna 'merma_alta' para evitar reglas triviales
-if 'merma_alta' in binary_data.columns:
-    binary_data = binary_data.drop(columns=['merma_alta'])
 
 # Generar y analizar reglas
 print("Generando reglas de asociación...")
